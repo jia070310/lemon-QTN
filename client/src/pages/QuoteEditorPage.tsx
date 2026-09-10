@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api';
+import { useAuth } from '../auth';
 import { ModelAutocomplete } from '../components/ModelAutocomplete';
 import { OptionAutocomplete } from '../components/OptionAutocomplete';
 import { QuotePreview } from '../components/QuotePreview';
@@ -17,6 +18,7 @@ import {
   emptyItem,
   emptyQuote,
   type CustomFee,
+  type Customer,
   type DictCategory,
   type DictOption,
   type MeasureUnit,
@@ -45,6 +47,7 @@ export function QuoteEditorPage() {
   const { id } = useParams();
   const isNew = !id || id === 'new';
   const navigate = useNavigate();
+  const { isAdmin } = useAuth();
   const [quote, setQuote] = useState<Quote>(emptyQuote());
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
@@ -52,6 +55,8 @@ export function QuoteEditorPage() {
   const [translating, setTranslating] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [tableMenu, setTableMenu] = useState(false);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [customerPick, setCustomerPick] = useState('');
   const [pendingModel, setPendingModel] = useState<{
     code: string;
     rowIndex: number;
@@ -71,6 +76,27 @@ export function QuoteEditorPage() {
   const askedModels = useRef<Set<string>>(new Set());
   const askedOptions = useRef<Set<string>>(new Set());
   const previewRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    api
+      .listCustomers('', false)
+      .then(({ items }) => setCustomers(items))
+      .catch(() => {
+        /* ignore */
+      });
+  }, []);
+
+  function applyCustomer(idStr: string) {
+    setCustomerPick(idStr);
+    const c = customers.find((x) => String(x.id) === idStr);
+    if (!c) return;
+    setQuote((q) => ({
+      ...q,
+      customerName: c.name,
+      contact: c.contact || q.contact,
+      address: c.address || q.address,
+    }));
+  }
 
   useEffect(() => {
     Promise.all([
@@ -263,6 +289,7 @@ export function QuoteEditorPage() {
   }
 
   function handleUnknownModel(index: number, code: string) {
+    if (!isAdmin) return;
     const key = code.toLowerCase();
     if (askedModels.current.has(key)) return;
     askedModels.current.add(key);
@@ -279,6 +306,11 @@ export function QuoteEditorPage() {
 
   async function confirmAddToLibrary() {
     if (!pendingModel) return;
+    if (!isAdmin) {
+      setError('需要管理员权限才能加入型号库');
+      setPendingModel(null);
+      return;
+    }
     try {
       await api.createProduct({
         code: pendingModel.code,
@@ -298,6 +330,7 @@ export function QuoteEditorPage() {
   }
 
   function handleUnknownOption(category: DictCategory, index: number, label: string) {
+    if (!isAdmin) return;
     const key = `${category}:${label}`;
     if (askedOptions.current.has(key)) return;
     askedOptions.current.add(key);
@@ -306,6 +339,11 @@ export function QuoteEditorPage() {
 
   async function confirmAddOption() {
     if (!pendingOption) return;
+    if (!isAdmin) {
+      setError('需要管理员权限才能加入选项库');
+      setPendingOption(null);
+      return;
+    }
     try {
       const { item } = await api.createOption({
         category: pendingOption.category,
@@ -342,6 +380,14 @@ export function QuoteEditorPage() {
         const { item } = await api.updateQuote(Number(id), body);
         setQuote({ ...item, items: item.items.length ? item.items : [emptyItem()] });
         setMsg('已保存');
+      }
+      if (quote.customerName.trim()) {
+        api
+          .listCustomers('', false)
+          .then(({ items }) => setCustomers(items))
+          .catch(() => {
+            /* ignore */
+          });
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存失败');
@@ -497,8 +543,30 @@ export function QuoteEditorPage() {
             客户
             <input
               value={quote.customerName}
-              onChange={(e) => setQuote({ ...quote, customerName: e.target.value })}
+              onChange={(e) => {
+                setCustomerPick('');
+                setQuote({ ...quote, customerName: e.target.value });
+              }}
+              list="customer-name-suggestions"
+              placeholder="输入或从客户库选择"
             />
+            <datalist id="customer-name-suggestions">
+              {customers.map((c) => (
+                <option key={c.id} value={c.name} />
+              ))}
+            </datalist>
+          </label>
+          <label>
+            从客户库填入
+            <select value={customerPick} onChange={(e) => applyCustomer(e.target.value)}>
+              <option value="">选择已有客户…</option>
+              {customers.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                  {c.contact ? ` · ${c.contact}` : ''}
+                </option>
+              ))}
+            </select>
           </label>
           <label className="span-2">
             地址

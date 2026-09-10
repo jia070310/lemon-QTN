@@ -262,7 +262,14 @@ export function QuotePreview({ quote }: Props) {
       <div className="quote-footer">
         <div className="footer-qr">
           {qrSrc ? (
-            <img src={qrSrc} alt={company.qrLabel} className="tng-qr" />
+            <img
+              src={qrSrc}
+              alt={company.qrLabel}
+              className="tng-qr"
+              width={96}
+              height={96}
+              decoding="sync"
+            />
           ) : (
             <div className="tng-qr tng-qr--placeholder" aria-label={company.qrLabel}>
               <span>MALAYSIA</span>

@@ -8,6 +8,8 @@ import { quotesRouter } from './routes/quotes.js';
 import { translateRouter } from './routes/translate.js';
 import { optionsRouter } from './routes/options.js';
 import { settingsRouter } from './routes/settings.js';
+import { customersRouter } from './routes/customers.js';
+import { usersRouter } from './routes/users.js';
 
 initDb();
 
@@ -27,6 +29,8 @@ app.use('/api/quotes', quotesRouter);
 app.use('/api/translate', translateRouter);
 app.use('/api/options', optionsRouter);
 app.use('/api/settings', settingsRouter);
+app.use('/api/customers', customersRouter);
+app.use('/api/users', usersRouter);
 
 app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(err);

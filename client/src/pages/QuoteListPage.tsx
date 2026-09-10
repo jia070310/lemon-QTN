@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import type { QuoteSummary } from '../types';
 
@@ -11,6 +11,7 @@ function displayName(q: QuoteSummary) {
 }
 
 export function QuoteListPage() {
+  const navigate = useNavigate();
   const [items, setItems] = useState<QuoteSummary[]>([]);
   const [keyword, setKeyword] = useState('');
   const [error, setError] = useState('');
@@ -44,6 +45,16 @@ export function QuoteListPage() {
     if (!confirm('删除该报价单？')) return;
     await api.deleteQuote(id);
     await load();
+  }
+
+  async function duplicate(id: number) {
+    try {
+      const { item } = await api.duplicateQuote(id);
+      if (item.id) navigate(`/quotes/${item.id}`);
+      else await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '复制失败');
+    }
   }
 
   return (
@@ -110,6 +121,9 @@ export function QuoteListPage() {
                 <td className="muted">{q.updatedAt}</td>
                 <td className="row">
                   <Link to={`/quotes/${q.id}`}>编辑</Link>
+                  <button type="button" className="link" onClick={() => duplicate(q.id)}>
+                    复制
+                  </button>
                   <button type="button" className="link danger" onClick={() => remove(q.id)}>
                     删除
                   </button>

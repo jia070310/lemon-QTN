@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { db } from '../db.js';
-import { authRequired } from '../auth.js';
+import { adminRequired, authRequired } from '../auth.js';
 
 export type OptionCategory = 'type' | 'open_style' | 'install_method';
 
@@ -35,7 +35,7 @@ optionsRouter.get('/', (req, res) => {
   const all = req.query.all === '1';
 
   let sql = 'SELECT * FROM dict_options WHERE 1=1';
-  const params: unknown[] = [];
+  const params: (string | number)[] = [];
 
   if (category) {
     sql += ' AND category = ?';
@@ -82,7 +82,7 @@ optionsRouter.post('/', (req, res) => {
   }
 });
 
-optionsRouter.put('/:id', (req, res) => {
+optionsRouter.put('/:id', adminRequired, (req, res) => {
   const id = Number(req.params.id);
   const parsed = optionSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -107,7 +107,7 @@ optionsRouter.put('/:id', (req, res) => {
   }
 });
 
-optionsRouter.delete('/:id', (req, res) => {
+optionsRouter.delete('/:id', adminRequired, (req, res) => {
   const id = Number(req.params.id);
   db.prepare(`UPDATE dict_options SET enabled = 0 WHERE id = ?`).run(id);
   res.json({ ok: true });

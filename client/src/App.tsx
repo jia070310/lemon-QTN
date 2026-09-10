@@ -1,6 +1,7 @@
 import { Navigate, NavLink, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
 import { api, getToken, setToken } from './api';
+import { AuthContext } from './auth';
 import type { User } from './types';
 import { LoginPage } from './pages/LoginPage';
 import { ProductsPage } from './pages/ProductsPage';
@@ -8,13 +9,24 @@ import { OptionsPage } from './pages/OptionsPage';
 import { QuoteEditorPage } from './pages/QuoteEditorPage';
 import { QuoteListPage } from './pages/QuoteListPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { CustomersPage } from './pages/CustomersPage';
+import { UsersPage } from './pages/UsersPage';
 
-const NAV = [
+type NavItem = {
+  to: string;
+  label: string;
+  hint: string;
+  adminOnly?: boolean;
+  match: (path: string) => boolean;
+  icon: React.ReactNode;
+};
+
+const NAV: NavItem[] = [
   {
     to: '/quotes',
     label: '报价单',
     hint: '量尺与报价',
-    match: (path: string) => path.startsWith('/quotes'),
+    match: (path) => path.startsWith('/quotes'),
     icon: (
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path
@@ -25,7 +37,31 @@ const NAV = [
           strokeLinejoin="round"
         />
         <path d="M14.5 3.5V8H19" fill="none" stroke="currentColor" strokeWidth="1.75" />
-        <path d="M9.5 12h7M9.5 15.5h5" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+        <path
+          d="M9.5 12h7M9.5 15.5h5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.75"
+          strokeLinecap="round"
+        />
+      </svg>
+    ),
+  },
+  {
+    to: '/customers',
+    label: '客户库',
+    hint: '常用客户',
+    match: (path) => path.startsWith('/customers'),
+    icon: (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="8" r="3.2" fill="none" stroke="currentColor" strokeWidth="1.75" />
+        <path
+          d="M5 19c1.5-3.2 3.8-4.8 7-4.8S17.5 15.8 19 19"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.75"
+          strokeLinecap="round"
+        />
       </svg>
     ),
   },
@@ -33,7 +69,7 @@ const NAV = [
     to: '/products',
     label: '型号库',
     hint: '布艺档案',
-    match: (path: string) => path.startsWith('/products'),
+    match: (path) => path.startsWith('/products'),
     icon: (
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <rect x="4" y="5" width="16" height="14" rx="2" fill="none" stroke="currentColor" strokeWidth="1.75" />
@@ -45,7 +81,7 @@ const NAV = [
     to: '/options',
     label: '选项库',
     hint: '类型/方式',
-    match: (path: string) => path.startsWith('/options'),
+    match: (path) => path.startsWith('/options'),
     icon: (
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path
@@ -64,7 +100,8 @@ const NAV = [
     to: '/settings',
     label: '公司设置',
     hint: '银行/收款码',
-    match: (path: string) => path.startsWith('/settings'),
+    adminOnly: true,
+    match: (path) => path.startsWith('/settings'),
     icon: (
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" strokeWidth="1.75" />
@@ -78,15 +115,41 @@ const NAV = [
       </svg>
     ),
   },
-] as const;
+  {
+    to: '/users',
+    label: '用户管理',
+    hint: '账号权限',
+    adminOnly: true,
+    match: (path) => path.startsWith('/users'),
+    icon: (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path
+          d="M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM16 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.75"
+        />
+        <path
+          d="M3.5 19c.9-2.6 2.6-4 5-4s4.1 1.4 5 4M12.5 19c.5-1.6 1.5-2.6 3.2-3.2"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.75"
+          strokeLinecap="round"
+        />
+      </svg>
+    ),
+  },
+];
 
 function moduleTitle(pathname: string) {
   if (pathname.startsWith('/quotes/') && pathname !== '/quotes/new') return '编辑报价单';
   if (pathname === '/quotes/new') return '新建报价单';
   if (pathname.startsWith('/quotes')) return '报价单';
+  if (pathname.startsWith('/customers')) return '客户库';
   if (pathname.startsWith('/products')) return '型号库';
   if (pathname.startsWith('/options')) return '选项库';
   if (pathname.startsWith('/settings')) return '公司设置';
+  if (pathname.startsWith('/users')) return '用户管理';
   return '工作台';
 }
 
@@ -94,6 +157,8 @@ function Shell({ user, onLogout }: { user: User; onLogout: () => void }) {
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
   const title = useMemo(() => moduleTitle(location.pathname), [location.pathname]);
+  const isAdmin = user.role === 'admin';
+  const navItems = NAV.filter((item) => !item.adminOnly || isAdmin);
 
   return (
     <div className={`app-shell ${collapsed ? 'is-collapsed' : ''}`}>
@@ -123,7 +188,7 @@ function Shell({ user, onLogout }: { user: User; onLogout: () => void }) {
 
           <nav className="side-nav">
             <p className="nav-label">{collapsed ? '模块' : '业务模块'}</p>
-            {NAV.map((item) => (
+            {navItems.map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}
@@ -156,7 +221,7 @@ function Shell({ user, onLogout }: { user: User; onLogout: () => void }) {
               <div className="sidebar-user">
                 <div>
                   <strong>{user.displayName}</strong>
-                  <span>已登录</span>
+                  <span>{isAdmin ? '管理员' : '已登录'}</span>
                 </div>
                 <button type="button" className="link" onClick={onLogout}>
                   退出
@@ -184,7 +249,10 @@ function Shell({ user, onLogout }: { user: User; onLogout: () => void }) {
         <span className="statusbar-sep" />
         <span>{title}</span>
         <span className="statusbar-sep" />
-        <span className="statusbar-right">{user.displayName}</span>
+        <span className="statusbar-right">
+          {user.displayName}
+          {isAdmin ? ' · 管理员' : ''}
+        </span>
       </footer>
     </div>
   );
@@ -199,6 +267,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [booting, setBooting] = useState(true);
   const navigate = useNavigate();
+  const isAdmin = user?.role === 'admin';
 
   useEffect(() => {
     const token = getToken();
@@ -224,22 +293,26 @@ export default function App() {
   }
 
   return (
-    <Routes>
-      <Route
-        path="/login"
-        element={user ? <Navigate to="/quotes" replace /> : <LoginPage onLogin={setUser} />}
-      />
-      <Route element={<Protected user={user} />}>
-        <Route element={<Shell user={user!} onLogout={logout} />}>
-          <Route path="/" element={<Navigate to="/quotes" replace />} />
-          <Route path="/quotes" element={<QuoteListPage />} />
-          <Route path="/quotes/:id" element={<QuoteEditorPage />} />
-          <Route path="/products" element={<ProductsPage />} />
-          <Route path="/options" element={<OptionsPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
+    <AuthContext.Provider value={{ user, isAdmin: !!isAdmin }}>
+      <Routes>
+        <Route
+          path="/login"
+          element={user ? <Navigate to="/quotes" replace /> : <LoginPage onLogin={setUser} />}
+        />
+        <Route element={<Protected user={user} />}>
+          <Route element={<Shell user={user!} onLogout={logout} />}>
+            <Route path="/" element={<Navigate to="/quotes" replace />} />
+            <Route path="/quotes" element={<QuoteListPage />} />
+            <Route path="/quotes/:id" element={<QuoteEditorPage />} />
+            <Route path="/customers" element={<CustomersPage />} />
+            <Route path="/products" element={<ProductsPage />} />
+            <Route path="/options" element={<OptionsPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/users" element={<UsersPage />} />
+          </Route>
         </Route>
-      </Route>
-      <Route path="*" element={<Navigate to={user ? '/quotes' : '/login'} replace />} />
-    </Routes>
+        <Route path="*" element={<Navigate to={user ? '/quotes' : '/login'} replace />} />
+      </Routes>
+    </AuthContext.Provider>
   );
 }

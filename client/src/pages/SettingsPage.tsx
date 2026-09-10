@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
+import { Navigate } from 'react-router-dom';
 import { api } from '../api';
+import { useAuth } from '../auth';
 import {
   DEFAULT_COMPANY_SETTINGS,
   type CompanySettings,
 } from '../lib/company';
 
 export function SettingsPage() {
+  const { isAdmin } = useAuth();
   const [form, setForm] = useState<CompanySettings>(DEFAULT_COMPANY_SETTINGS);
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
@@ -18,6 +21,8 @@ export function SettingsPage() {
       .then(({ item }) => setForm({ ...DEFAULT_COMPANY_SETTINGS, ...item }))
       .catch((e) => setError(e.message));
   }, []);
+
+  if (!isAdmin) return <Navigate to="/quotes" replace />;
 
   function patch<K extends keyof CompanySettings>(key: K, value: CompanySettings[K]) {
     setForm((f) => ({ ...f, [key]: value }));

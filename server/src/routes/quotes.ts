@@ -49,6 +49,37 @@ const quoteSchema = z.object({
   items: z.array(itemSchema).default([]),
 });
 
+/** 保存报价时：有客户名则写入/更新客户库（按姓名匹配） */
+function upsertCustomerFromQuote(customerName: string, contact: string, address: string) {
+  const name = customerName.trim();
+  if (!name) return;
+  const contactVal = contact.trim();
+  const addressVal = address.trim();
+  const existing = db
+    .prepare('SELECT id, contact, address, note FROM customers WHERE name = ? COLLATE NOCASE LIMIT 1')
+    .get(name) as { id: number; contact: string; address: string; note: string } | undefined;
+  if (existing) {
+    db.prepare(
+      `UPDATE customers SET
+        name = ?,
+        contact = ?,
+        address = ?,
+        enabled = 1,
+        updated_at = datetime('now')
+      WHERE id = ?`,
+    ).run(
+      name,
+      contactVal || String(existing.contact || ''),
+      addressVal || String(existing.address || ''),
+      existing.id,
+    );
+    return;
+  }
+  db.prepare(
+    `INSERT INTO customers (name, contact, address, note, enabled) VALUES (?, ?, ?, '', 1)`,
+  ).run(name, contactVal, addressVal);
+}
+
 function parseCustomFees(raw: unknown): { name: string; amount: number }[] {
   if (Array.isArray(raw)) return raw as { name: string; amount: number }[];
   if (typeof raw === 'string') {
@@ -278,6 +309,7 @@ quotesRouter.post('/', (req, res) => {
         it.amount,
       );
     }
+    upsertCustomerFromQuote(d.customerName, d.contact, d.address);
     db.exec('COMMIT');
     res.status(201).json({ item: loadQuote(quoteId) });
   } catch (e) {
@@ -371,6 +403,7 @@ quotesRouter.put('/:id', (req, res) => {
         it.amount,
       );
     }
+    upsertCustomerFromQuote(d.customerName, d.contact, d.address);
     db.exec('COMMIT');
   } catch (e) {
     db.exec('ROLLBACK');
@@ -383,4 +416,96 @@ quotesRouter.delete('/:id', (req, res) => {
   const id = Number(req.params.id);
   db.prepare('DELETE FROM quotes WHERE id = ?').run(id);
   res.json({ ok: true });
+});
+
+quotesRouter.post('/:id/duplicate', (req, res) => {
+  const src = loadQuote(Number(req.params.id));
+  if (!src) return res.status(404).json({ error: '报价单不存在' });
+
+  const nameBase = String(src.name || src.customerName || '报价单').trim() || '报价单';
+  const copyName = `${nameBase} (副本)`;
+  const items = (src.items || []).map((it: Record<string, unknown>, index: number) => ({
+    floor: String(it.floor || ''),
+    area: String(it.area || ''),
+    type: String(it.type || '布'),
+    model: String(it.model || ''),
+    openStyle: String(it.openStyle || ''),
+    installMethod: String(it.installMethod || ''),
+    width: Number(it.width) || 0,
+    height: Number(it.height) || 0,
+    sqm: Number(it.sqm) || 0,
+    unitPrice: Number(it.unitPrice) || 0,
+    amount: Number(it.amount) || 0,
+    sortOrder: index,
+  }));
+  const customFeesJson = JSON.stringify(src.customFees || []);
+  const customFeeNotesJson = JSON.stringify(
+    Array.isArray(src.customFeeNotes) && src.customFeeNotes.length ? src.customFeeNotes : [''],
+  );
+
+  const insertQuote = db.prepare(`
+    INSERT INTO quotes (
+      name, title, quote_date, customer_name, address, contact,
+      include_measure, include_produce, include_install, include_heat, include_other,
+      other_fee_note, custom_fee_notes, other_notes, measure_unit, language, page_orientation, custom_fees,
+      deposit_previous, deposit_current, total_amount, created_by
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const insertItem = db.prepare(`
+    INSERT INTO quote_items (
+      quote_id, sort_order, floor, area, type, model, open_style, install_method,
+      width, height, sqm, unit_price, amount
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  db.exec('BEGIN');
+  try {
+    const info = insertQuote.run(
+      copyName,
+      String(src.title || ''),
+      String(src.quoteDate || ''),
+      String(src.customerName || ''),
+      String(src.address || ''),
+      String(src.contact || ''),
+      src.includeMeasure ? 1 : 0,
+      src.includeProduce ? 1 : 0,
+      src.includeInstall ? 1 : 0,
+      src.includeHeat ? 1 : 0,
+      src.includeOther ? 1 : 0,
+      String(src.otherFeeNote || ''),
+      customFeeNotesJson,
+      String(src.otherNotes || ''),
+      String(src.measureUnit || 'm'),
+      String(src.language || 'both'),
+      src.pageOrientation === 'landscape' ? 'landscape' : 'portrait',
+      customFeesJson,
+      Number(src.depositPrevious) || 0,
+      Number(src.depositCurrent) || 0,
+      Number(src.totalAmount) || 0,
+      req.user!.id,
+    );
+    const quoteId = Number(info.lastInsertRowid);
+    for (const it of items) {
+      insertItem.run(
+        quoteId,
+        it.sortOrder,
+        it.floor,
+        it.area,
+        it.type,
+        it.model,
+        it.openStyle,
+        it.installMethod,
+        it.width,
+        it.height,
+        it.sqm,
+        it.unitPrice,
+        it.amount,
+      );
+    }
+    db.exec('COMMIT');
+    res.status(201).json({ item: loadQuote(quoteId) });
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
 });

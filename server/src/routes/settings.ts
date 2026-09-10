@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { db } from '../db.js';
-import { authRequired } from '../auth.js';
+import { adminRequired, authRequired } from '../auth.js';
 
 export const settingsRouter = Router();
 settingsRouter.use(authRequired);
@@ -49,7 +49,7 @@ settingsRouter.get('/company', (_req, res) => {
   res.json({ item: readCompany() });
 });
 
-settingsRouter.put('/company', (req, res) => {
+settingsRouter.put('/company', adminRequired, (req, res) => {
   const parsed = companySchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: '参数无效', details: parsed.error.flatten() });

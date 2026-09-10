@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { db } from '../db.js';
-import { authRequired } from '../auth.js';
+import { adminRequired, authRequired } from '../auth.js';
 
 export const productsRouter = Router();
 productsRouter.use(authRequired);
@@ -35,7 +35,7 @@ productsRouter.get('/', (req, res) => {
   const q = String(req.query.q || '').trim();
   const includeDisabled = req.query.all === '1';
   let sql = 'SELECT * FROM products WHERE 1=1';
-  const params: unknown[] = [];
+  const params: (string | number)[] = [];
   if (!includeDisabled) {
     sql += ' AND enabled = 1';
   }
@@ -44,9 +44,75 @@ productsRouter.get('/', (req, res) => {
     const like = `%${q}%`;
     params.push(like, like, like);
   }
-  sql += ' ORDER BY code ASC LIMIT 200';
+  sql += ' ORDER BY code ASC LIMIT 500';
   const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
   res.json({ items: rows.map(mapProduct) });
+});
+
+productsRouter.post('/import', adminRequired, (req, res) => {
+  const schema = z.object({
+    items: z.array(productSchema).min(1),
+    updateExisting: z.boolean().default(true),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: '参数无效' });
+
+  let created = 0;
+  let updated = 0;
+  let skipped = 0;
+  const insert = db.prepare(
+    `INSERT INTO products (code, type, default_unit_price, default_open_style, default_install_method, note, enabled)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  );
+  const update = db.prepare(
+    `UPDATE products SET type=?, default_unit_price=?, default_open_style=?, default_install_method=?,
+     note=?, enabled=?, updated_at=datetime('now') WHERE code=?`,
+  );
+  const find = db.prepare('SELECT id FROM products WHERE code = ?');
+
+  db.exec('BEGIN');
+  try {
+    for (const d of parsed.data.items) {
+      const code = d.code.trim();
+      if (!code) {
+        skipped += 1;
+        continue;
+      }
+      const exists = find.get(code);
+      if (exists) {
+        if (parsed.data.updateExisting) {
+          update.run(
+            d.type,
+            d.defaultUnitPrice,
+            d.defaultOpenStyle,
+            d.defaultInstallMethod,
+            d.note,
+            d.enabled ? 1 : 0,
+            code,
+          );
+          updated += 1;
+        } else {
+          skipped += 1;
+        }
+      } else {
+        insert.run(
+          code,
+          d.type,
+          d.defaultUnitPrice,
+          d.defaultOpenStyle,
+          d.defaultInstallMethod,
+          d.note,
+          d.enabled ? 1 : 0,
+        );
+        created += 1;
+      }
+    }
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+  res.json({ created, updated, skipped });
 });
 
 productsRouter.get('/:id', (req, res) => {
@@ -57,7 +123,7 @@ productsRouter.get('/:id', (req, res) => {
   res.json({ item: mapProduct(row) });
 });
 
-productsRouter.post('/', (req, res) => {
+productsRouter.post('/', adminRequired, (req, res) => {
   const parsed = productSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: '参数无效', details: parsed.error.flatten() });
@@ -92,7 +158,7 @@ productsRouter.post('/', (req, res) => {
   }
 });
 
-productsRouter.put('/:id', (req, res) => {
+productsRouter.put('/:id', adminRequired, (req, res) => {
   const parsed = productSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: '参数无效' });
@@ -127,8 +193,8 @@ productsRouter.put('/:id', (req, res) => {
   }
 });
 
-productsRouter.delete('/:id', (req, res) => {
+productsRouter.delete('/:id', adminRequired, (req, res) => {
   const id = Number(req.params.id);
-  db.prepare('UPDATE products SET enabled = 0, updated_at=datetime(\'now\') WHERE id = ?').run(id);
+  db.prepare("UPDATE products SET enabled = 0, updated_at=datetime('now') WHERE id = ?").run(id);
   res.json({ ok: true });
 });

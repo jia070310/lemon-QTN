@@ -1,4 +1,12 @@
-import type { DictCategory, DictOption, Product, Quote, QuoteSummary, User } from './types';
+import type {
+  Customer,
+  DictCategory,
+  DictOption,
+  Product,
+  Quote,
+  QuoteSummary,
+  User,
+} from './types';
 
 const TOKEN_KEY = 'jinchan_token';
 
@@ -59,6 +67,15 @@ export const api = {
   deleteProduct(id: number) {
     return request<{ ok: boolean }>(`/products/${id}`, { method: 'DELETE' });
   },
+  importProducts(
+    items: Array<Partial<Product> & { code: string }>,
+    updateExisting = true,
+  ) {
+    return request<{ created: number; updated: number; skipped: number }>('/products/import', {
+      method: 'POST',
+      body: JSON.stringify({ items, updateExisting }),
+    });
+  },
   listQuotes(q = '') {
     const qs = q.trim() ? `?q=${encodeURIComponent(q.trim())}` : '';
     return request<{ items: QuoteSummary[] }>(`/quotes${qs}`);
@@ -80,6 +97,9 @@ export const api = {
   },
   deleteQuote(id: number) {
     return request<{ ok: boolean }>(`/quotes/${id}`, { method: 'DELETE' });
+  },
+  duplicateQuote(id: number) {
+    return request<{ item: Quote }>(`/quotes/${id}/duplicate`, { method: 'POST' });
   },
   translate(texts: string[]) {
     return request<{ translations: Record<string, string> }>('/translate', {
@@ -133,5 +153,53 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(body),
     });
+  },
+  listCustomers(q = '', all = false) {
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (all) params.set('all', '1');
+    const qs = params.toString();
+    return request<{ items: Customer[] }>(`/customers${qs ? `?${qs}` : ''}`);
+  },
+  createCustomer(body: Partial<Customer> & { name: string }) {
+    return request<{ item: Customer }>('/customers', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+  updateCustomer(id: number, body: Partial<Customer> & { name: string }) {
+    return request<{ item: Customer }>(`/customers/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    });
+  },
+  deleteCustomer(id: number) {
+    return request<{ ok: boolean }>(`/customers/${id}`, { method: 'DELETE' });
+  },
+  listUsers() {
+    return request<{ items: User[] }>('/users');
+  },
+  createUser(body: {
+    username: string;
+    password: string;
+    displayName: string;
+    role: 'admin' | 'user';
+  }) {
+    return request<{ item: User }>('/users', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+  updateUser(
+    id: number,
+    body: { displayName: string; role: 'admin' | 'user'; password?: string },
+  ) {
+    return request<{ item: User }>(`/users/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    });
+  },
+  deleteUser(id: number) {
+    return request<{ ok: boolean }>(`/users/${id}`, { method: 'DELETE' });
   },
 };

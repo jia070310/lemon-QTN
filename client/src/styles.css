@@ -1460,9 +1460,9 @@ label .hint {
 
 .quote-footer {
   display: grid;
-  grid-template-columns: 108px 1fr auto;
-  gap: 10px 14px;
-  align-items: end;
+  grid-template-columns: 110px minmax(0, 1fr) auto;
+  gap: 8px 14px;
+  align-items: start;
   margin-top: 10px;
   padding-top: 4px;
 }
@@ -1472,6 +1472,7 @@ label .hint {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  padding-top: 2px;
 }
 
 .footer-bank {
@@ -1499,7 +1500,7 @@ label .hint {
   gap: 4px;
   white-space: nowrap;
   font-size: 12px;
-  padding-bottom: 4px;
+  padding-bottom: 2px;
   align-self: end;
 }
 
@@ -1518,22 +1519,32 @@ label .hint {
   width: 120px;
   height: 120px;
   object-fit: contain;
-  border: 1px solid var(--line);
-  background: #fff;
+  border: none;
+  outline: none;
+  background: transparent;
 }
 
 .footer-qr {
   text-align: center;
+  width: 110px;
+  max-width: 110px;
+  overflow: hidden;
 }
 
 .tng-qr {
-  width: 96px;
-  height: 96px;
+  width: 96px !important;
+  height: 96px !important;
+  max-width: 96px !important;
+  max-height: 96px !important;
   object-fit: contain;
+  object-position: center;
   display: block;
   margin: 0 auto;
-  outline: 1px solid rgba(0, 0, 0, 0.12);
-  background: #fff;
+  border: 0 none !important;
+  outline: 0 none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  vertical-align: top;
 }
 
 .tng-qr--placeholder {
@@ -1548,6 +1559,7 @@ label .hint {
   line-height: 1.2;
   color: #4a1528;
   box-sizing: border-box;
+  border-radius: 4px;
 }
 
 .tng-qr--placeholder strong {

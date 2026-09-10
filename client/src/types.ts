@@ -26,6 +26,15 @@ export type Product = {
   enabled: boolean;
 };
 
+export type Customer = {
+  id: number;
+  name: string;
+  contact: string;
+  address: string;
+  note: string;
+  enabled: boolean;
+};
+
 export type QuoteItem = {
   id?: number;
   floor: string;
