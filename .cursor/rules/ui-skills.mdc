@@ -1,0 +1,17 @@
+---
+description: 做前端/UI 改动时优先走 UI Skills（MCP + 本地 skills）
+globs: client/**/*.{tsx,ts,css}
+alwaysApply: false
+---
+
+# UI Skills
+
+做报价单工具前端 UI（布局、样式、交互、视觉打磨）时：
+
+1. 先读本地路由 skill：`.cursor/skills/ui-skills-root/SKILL.md`
+2. 再按任务选 1–2 个 skill（最多 3 个），优先：
+   - 快速清理：`baseline-ui`
+   - 现有界面改进：`improve-ui` / `better-ui`
+   - 新界面/较强视觉：`frontend-design`
+3. 也可通过 MCP `ui-skills` 的 `list_skills` / `get_skill` 拉取更多 skill
+4. 不要一次加载过多 skill；实现时遵循项目既有 React + CSS 结构，避免无关重构
