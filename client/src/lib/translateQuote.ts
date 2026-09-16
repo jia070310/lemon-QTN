@@ -1,4 +1,4 @@
-import type { Quote } from '../types';
+import type { Quote, QuoteLanguage } from '../types';
 import { VALUE_MAP, getQuoteI18n } from './i18n';
 
 const MONTHS_EN = [
@@ -64,6 +64,53 @@ export function localizeDateToChinese(dateStr: string): string {
 
   if (/^\d{4}年\d{1,2}月\d{1,2}日?$/.test(s)) return s;
   return s;
+}
+
+/** 解析为系统 date input 用的 yyyy-mm-dd；失败则用今天 */
+export function toDateInputValue(dateStr: string): string {
+  const s = (dateStr || '').trim();
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) return s;
+
+  const zh = s.match(/^(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日?$/);
+  if (zh) {
+    return `${zh[1]}-${pad2(Number(zh[2]))}-${pad2(Number(zh[3]))}`;
+  }
+
+  const en = s.match(/^([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4})$/);
+  if (en) {
+    const mi = MONTHS_EN.findIndex((m) => m.toLowerCase() === en[1].toLowerCase());
+    if (mi >= 0) {
+      return `${en[3]}-${pad2(mi + 1)}-${pad2(Number(en[2]))}`;
+    }
+  }
+
+  const loose = s.match(/(\d{4}).*?(\d{1,2}).*?(\d{1,2})/);
+  if (loose) {
+    return `${loose[1]}-${pad2(Number(loose[2]))}-${pad2(Number(loose[3]))}`;
+  }
+
+  return todayIsoDate();
+}
+
+/** 系统 date input 的值 → 报价单展示文案 */
+export function fromDateInputValue(iso: string, lang: QuoteLanguage = 'both'): string {
+  const m = (iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return iso;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  if (lang === 'en') return `${MONTHS_EN[mo - 1]} ${d}, ${y}`;
+  return `${y}年${mo}月${d}日`;
+}
+
+function pad2(n: number) {
+  return String(n).padStart(2, '0');
+}
+
+function todayIsoDate() {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
 function localTranslate(text: string): string | null {

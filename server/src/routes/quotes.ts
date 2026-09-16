@@ -18,6 +18,8 @@ const itemSchema = z.object({
   height: z.number().default(0),
   sqm: z.number().optional(),
   unitPrice: z.number().default(0),
+  source: z.enum(['brand', 'own']).default('own'),
+  brandName: z.string().default(''),
 });
 
 const customFeeSchema = z.object({
@@ -123,6 +125,8 @@ function mapItem(row: Record<string, unknown>) {
     sqm: row.sqm,
     unitPrice: row.unit_price,
     amount: row.amount,
+    source: row.source === 'brand' ? 'brand' : 'own',
+    brandName: row.source === 'brand' ? String(row.brand_name || '') : '',
   };
 }
 
@@ -182,7 +186,14 @@ function normalizeItems(items: z.infer<typeof itemSchema>[]) {
       unitPrice: it.unitPrice,
       sqm: it.sqm,
     });
-    return { ...it, sortOrder: index, sqm, amount };
+    return {
+      ...it,
+      source: it.source === 'brand' ? 'brand' : 'own',
+      brandName: it.source === 'brand' ? String(it.brandName || '').trim() : '',
+      sortOrder: index,
+      sqm,
+      amount,
+    };
   });
 }
 
@@ -261,8 +272,8 @@ quotesRouter.post('/', (req, res) => {
   const insertItem = db.prepare(`
     INSERT INTO quote_items (
       quote_id, sort_order, floor, area, type, model, open_style, install_method,
-      width, height, sqm, unit_price, amount
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      width, height, sqm, unit_price, amount, source, brand_name
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   db.exec('BEGIN');
@@ -307,6 +318,8 @@ quotesRouter.post('/', (req, res) => {
         it.sqm,
         it.unitPrice,
         it.amount,
+        it.source === 'brand' ? 'brand' : 'own',
+        it.source === 'brand' ? String(it.brandName || '').trim() : '',
       );
     }
     upsertCustomerFromQuote(d.customerName, d.contact, d.address);
@@ -355,8 +368,8 @@ quotesRouter.put('/:id', (req, res) => {
   const insertItem = db.prepare(`
     INSERT INTO quote_items (
       quote_id, sort_order, floor, area, type, model, open_style, install_method,
-      width, height, sqm, unit_price, amount
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      width, height, sqm, unit_price, amount, source, brand_name
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   db.exec('BEGIN');
@@ -401,6 +414,8 @@ quotesRouter.put('/:id', (req, res) => {
         it.sqm,
         it.unitPrice,
         it.amount,
+        it.source === 'brand' ? 'brand' : 'own',
+        it.source === 'brand' ? String(it.brandName || '').trim() : '',
       );
     }
     upsertCustomerFromQuote(d.customerName, d.contact, d.address);
@@ -436,6 +451,8 @@ quotesRouter.post('/:id/duplicate', (req, res) => {
     sqm: Number(it.sqm) || 0,
     unitPrice: Number(it.unitPrice) || 0,
     amount: Number(it.amount) || 0,
+    source: it.source === 'brand' ? 'brand' : 'own',
+    brandName: it.source === 'brand' ? String(it.brandName || '').trim() : '',
     sortOrder: index,
   }));
   const customFeesJson = JSON.stringify(src.customFees || []);
@@ -454,8 +471,8 @@ quotesRouter.post('/:id/duplicate', (req, res) => {
   const insertItem = db.prepare(`
     INSERT INTO quote_items (
       quote_id, sort_order, floor, area, type, model, open_style, install_method,
-      width, height, sqm, unit_price, amount
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      width, height, sqm, unit_price, amount, source, brand_name
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   db.exec('BEGIN');
@@ -500,6 +517,8 @@ quotesRouter.post('/:id/duplicate', (req, res) => {
         it.sqm,
         it.unitPrice,
         it.amount,
+        it.source === 'brand' ? 'brand' : 'own',
+        it.source === 'brand' ? String(it.brandName || '').trim() : '',
       );
     }
     db.exec('COMMIT');

@@ -24,6 +24,10 @@ export type Product = {
   defaultInstallMethod: string;
   note: string;
   enabled: boolean;
+  /** 货源：自有 / 品牌 */
+  source: ItemSource;
+  /** 品牌名（货源为品牌时） */
+  brandName: string;
 };
 
 export type Customer = {
@@ -48,7 +52,57 @@ export type QuoteItem = {
   sqm: number;
   unitPrice: number;
   amount: number;
+  /** 货源：品牌 / 自有 */
+  source: ItemSource;
+  /** 具体品牌（货源为品牌时） */
+  brandName: string;
 };
+
+/** 明细货源 */
+export type ItemSource = 'brand' | 'own';
+
+export const ITEM_SOURCE_OPTIONS: { value: ItemSource; label: string }[] = [
+  { value: 'own', label: '自有' },
+  { value: 'brand', label: '品牌' },
+];
+
+/** 作业单类型 */
+export type WorkOrderKind = 'brand' | 'fabric' | 'factory';
+
+export const WORK_ORDER_LABELS: Record<WorkOrderKind, string> = {
+  brand: '品牌报单',
+  fabric: '下料单',
+  factory: '工厂制作单',
+};
+
+export function normalizeItemSource(v: unknown): ItemSource {
+  return v === 'brand' ? 'brand' : 'own';
+}
+
+export function normalizeBrandName(source: ItemSource, brandName: unknown): string {
+  if (source !== 'brand') return '';
+  return String(brandName || '').trim();
+}
+
+/** 作业单草稿行（可带来源报价） */
+export type WorkOrderLine = QuoteItem & {
+  fromQuote?: string;
+  fromQuoteId?: number;
+};
+
+/** 从勾选行中筛出当前作业单要用的明细 */
+export function filterItemsForWorkOrder<T extends QuoteItem>(
+  items: T[],
+  selectedIndexes: number[],
+  kind: WorkOrderKind,
+): T[] {
+  const picked = selectedIndexes
+    .filter((i) => i >= 0 && i < items.length)
+    .map((i) => items[i]);
+  if (kind === 'brand') return picked.filter((it) => normalizeItemSource(it.source) === 'brand');
+  if (kind === 'fabric') return picked.filter((it) => normalizeItemSource(it.source) === 'own');
+  return picked;
+}
 
 export type CustomFee = {
   name: string;
@@ -118,6 +172,18 @@ export const TYPE_OPTIONS = ['布', '纱', '百叶'];
 export const OPEN_STYLE_OPTIONS = ['对开', '左单开', '右单开', '上下拉', ''];
 export const INSTALL_OPTIONS = ['顶装双轨', '顶装轨道', '侧装轨道', '顶装单轨', ''];
 
+/** 楼层常用选项（可点选，也可手填） */
+export const FLOOR_PRESETS = [
+  '地下室（负一层）',
+  '一楼',
+  '二楼',
+  '三楼',
+  '四楼',
+  '五楼',
+  '六楼',
+  '七楼',
+];
+
 export function emptyItem(): QuoteItem {
   return {
     floor: '',
@@ -131,6 +197,8 @@ export function emptyItem(): QuoteItem {
     sqm: 0,
     unitPrice: 0,
     amount: 0,
+    source: 'own',
+    brandName: '',
   };
 }
 

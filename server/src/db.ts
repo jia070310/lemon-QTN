@@ -34,6 +34,8 @@ export function initDb() {
       default_open_style TEXT NOT NULL DEFAULT '',
       default_install_method TEXT NOT NULL DEFAULT '',
       note TEXT NOT NULL DEFAULT '',
+      source TEXT NOT NULL DEFAULT 'own',
+      brand_name TEXT NOT NULL DEFAULT '',
       enabled INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -83,6 +85,8 @@ export function initDb() {
       sqm REAL NOT NULL DEFAULT 0,
       unit_price REAL NOT NULL DEFAULT 0,
       amount REAL NOT NULL DEFAULT 0,
+      source TEXT NOT NULL DEFAULT 'own',
+      brand_name TEXT NOT NULL DEFAULT '',
       FOREIGN KEY (quote_id) REFERENCES quotes(id) ON DELETE CASCADE
     );
 
@@ -148,6 +152,23 @@ export function initDb() {
   if (!cols.some((c) => c.name === 'page_orientation')) {
     db.exec(`ALTER TABLE quotes ADD COLUMN page_orientation TEXT NOT NULL DEFAULT 'portrait'`);
   }
+
+  const itemCols = db.prepare(`PRAGMA table_info(quote_items)`).all() as { name: string }[];
+  if (!itemCols.some((c) => c.name === 'source')) {
+    db.exec(`ALTER TABLE quote_items ADD COLUMN source TEXT NOT NULL DEFAULT 'own'`);
+  }
+  if (!itemCols.some((c) => c.name === 'brand_name')) {
+    db.exec(`ALTER TABLE quote_items ADD COLUMN brand_name TEXT NOT NULL DEFAULT ''`);
+  }
+
+  const productCols = db.prepare(`PRAGMA table_info(products)`).all() as { name: string }[];
+  if (!productCols.some((c) => c.name === 'source')) {
+    db.exec(`ALTER TABLE products ADD COLUMN source TEXT NOT NULL DEFAULT 'own'`);
+  }
+  if (!productCols.some((c) => c.name === 'brand_name')) {
+    db.exec(`ALTER TABLE products ADD COLUMN brand_name TEXT NOT NULL DEFAULT ''`);
+  }
+
   // migrate legacy single custom_fee_note -> custom_fee_notes
   // refresh cols after potential alters
   const cols2 = db.prepare(`PRAGMA table_info(quotes)`).all() as { name: string }[];

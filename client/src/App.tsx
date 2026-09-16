@@ -11,6 +11,7 @@ import { QuoteListPage } from './pages/QuoteListPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { CustomersPage } from './pages/CustomersPage';
 import { UsersPage } from './pages/UsersPage';
+import { WorkOrdersPage } from './pages/WorkOrdersPage';
 
 type NavItem = {
   to: string;
@@ -43,6 +44,31 @@ const NAV: NavItem[] = [
           stroke="currentColor"
           strokeWidth="1.75"
           strokeLinecap="round"
+        />
+      </svg>
+    ),
+  },
+  {
+    to: '/work-orders',
+    label: '制作单（下料单）',
+    hint: '合并出单',
+    match: (path) => path.startsWith('/work-orders'),
+    icon: (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path
+          d="M5 7h14M5 12h14M5 17h9"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.75"
+          strokeLinecap="round"
+        />
+        <path
+          d="M16.5 15.5l1.8 1.8 3.2-3.5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.75"
+          strokeLinecap="round"
+          strokeLinejoin="round"
         />
       </svg>
     ),
@@ -145,6 +171,7 @@ function moduleTitle(pathname: string) {
   if (pathname.startsWith('/quotes/') && pathname !== '/quotes/new') return '编辑报价单';
   if (pathname === '/quotes/new') return '新建报价单';
   if (pathname.startsWith('/quotes')) return '报价单';
+  if (pathname.startsWith('/work-orders')) return '制作单（下料单）';
   if (pathname.startsWith('/customers')) return '客户库';
   if (pathname.startsWith('/products')) return '型号库';
   if (pathname.startsWith('/options')) return '选项库';
@@ -304,6 +331,7 @@ export default function App() {
             <Route path="/" element={<Navigate to="/quotes" replace />} />
             <Route path="/quotes" element={<QuoteListPage />} />
             <Route path="/quotes/:id" element={<QuoteEditorPage />} />
+            <Route path="/work-orders" element={<WorkOrdersPage />} />
             <Route path="/customers" element={<CustomersPage />} />
             <Route path="/products" element={<ProductsPage />} />
             <Route path="/options" element={<OptionsPage />} />

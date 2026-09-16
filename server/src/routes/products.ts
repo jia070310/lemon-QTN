@@ -13,10 +13,19 @@ const productSchema = z.object({
   defaultOpenStyle: z.string().default(''),
   defaultInstallMethod: z.string().default(''),
   note: z.string().default(''),
+  source: z.enum(['brand', 'own']).default('own'),
+  brandName: z.string().default(''),
   enabled: z.boolean().default(true),
 });
 
+function normalizeSource(source: 'brand' | 'own', brandName: string) {
+  const src = source === 'brand' ? 'brand' : 'own';
+  const brand = src === 'brand' ? brandName.trim() : '';
+  return { source: src, brandName: brand };
+}
+
 function mapProduct(row: Record<string, unknown>) {
+  const source = row.source === 'brand' ? 'brand' : 'own';
   return {
     id: row.id,
     code: row.code,
@@ -25,6 +34,8 @@ function mapProduct(row: Record<string, unknown>) {
     defaultOpenStyle: row.default_open_style,
     defaultInstallMethod: row.default_install_method,
     note: row.note,
+    source,
+    brandName: source === 'brand' ? String(row.brand_name || '') : '',
     enabled: Boolean(row.enabled),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -40,13 +51,24 @@ productsRouter.get('/', (req, res) => {
     sql += ' AND enabled = 1';
   }
   if (q) {
-    sql += ' AND (code LIKE ? OR note LIKE ? OR type LIKE ?)';
+    sql += ' AND (code LIKE ? OR note LIKE ? OR type LIKE ? OR brand_name LIKE ?)';
     const like = `%${q}%`;
-    params.push(like, like, like);
+    params.push(like, like, like, like);
   }
   sql += ' ORDER BY code ASC LIMIT 500';
   const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
   res.json({ items: rows.map(mapProduct) });
+});
+
+productsRouter.get('/brands', (_req, res) => {
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT brand_name AS brandName FROM products
+       WHERE source = 'brand' AND TRIM(brand_name) != ''
+       ORDER BY brand_name ASC LIMIT 200`,
+    )
+    .all() as { brandName: string }[];
+  res.json({ items: rows.map((r) => String(r.brandName)) });
 });
 
 productsRouter.post('/import', adminRequired, (req, res) => {
@@ -61,12 +83,12 @@ productsRouter.post('/import', adminRequired, (req, res) => {
   let updated = 0;
   let skipped = 0;
   const insert = db.prepare(
-    `INSERT INTO products (code, type, default_unit_price, default_open_style, default_install_method, note, enabled)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO products (code, type, default_unit_price, default_open_style, default_install_method, note, source, brand_name, enabled)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const update = db.prepare(
     `UPDATE products SET type=?, default_unit_price=?, default_open_style=?, default_install_method=?,
-     note=?, enabled=?, updated_at=datetime('now') WHERE code=?`,
+     note=?, source=?, brand_name=?, enabled=?, updated_at=datetime('now') WHERE code=?`,
   );
   const find = db.prepare('SELECT id FROM products WHERE code = ?');
 
@@ -75,6 +97,11 @@ productsRouter.post('/import', adminRequired, (req, res) => {
     for (const d of parsed.data.items) {
       const code = d.code.trim();
       if (!code) {
+        skipped += 1;
+        continue;
+      }
+      const { source, brandName } = normalizeSource(d.source, d.brandName);
+      if (source === 'brand' && !brandName) {
         skipped += 1;
         continue;
       }
@@ -87,6 +114,8 @@ productsRouter.post('/import', adminRequired, (req, res) => {
             d.defaultOpenStyle,
             d.defaultInstallMethod,
             d.note,
+            source,
+            brandName,
             d.enabled ? 1 : 0,
             code,
           );
@@ -102,6 +131,8 @@ productsRouter.post('/import', adminRequired, (req, res) => {
           d.defaultOpenStyle,
           d.defaultInstallMethod,
           d.note,
+          source,
+          brandName,
           d.enabled ? 1 : 0,
         );
         created += 1;
@@ -129,11 +160,15 @@ productsRouter.post('/', adminRequired, (req, res) => {
     return res.status(400).json({ error: '参数无效', details: parsed.error.flatten() });
   }
   const d = parsed.data;
+  const { source, brandName } = normalizeSource(d.source, d.brandName);
+  if (source === 'brand' && !brandName) {
+    return res.status(400).json({ error: '品牌货源请填写品牌名称' });
+  }
   try {
     const info = db
       .prepare(
-        `INSERT INTO products (code, type, default_unit_price, default_open_style, default_install_method, note, enabled)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO products (code, type, default_unit_price, default_open_style, default_install_method, note, source, brand_name, enabled)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         d.code.trim(),
@@ -142,6 +177,8 @@ productsRouter.post('/', adminRequired, (req, res) => {
         d.defaultOpenStyle,
         d.defaultInstallMethod,
         d.note,
+        source,
+        brandName,
         d.enabled ? 1 : 0,
       );
     const row = db.prepare('SELECT * FROM products WHERE id = ?').get(info.lastInsertRowid) as Record<
@@ -164,6 +201,10 @@ productsRouter.put('/:id', adminRequired, (req, res) => {
     return res.status(400).json({ error: '参数无效' });
   }
   const d = parsed.data;
+  const { source, brandName } = normalizeSource(d.source, d.brandName);
+  if (source === 'brand' && !brandName) {
+    return res.status(400).json({ error: '品牌货源请填写品牌名称' });
+  }
   const id = Number(req.params.id);
   const existing = db.prepare('SELECT id FROM products WHERE id = ?').get(id);
   if (!existing) return res.status(404).json({ error: '型号不存在' });
@@ -171,7 +212,7 @@ productsRouter.put('/:id', adminRequired, (req, res) => {
   try {
     db.prepare(
       `UPDATE products SET code=?, type=?, default_unit_price=?, default_open_style=?,
-       default_install_method=?, note=?, enabled=?, updated_at=datetime('now') WHERE id=?`,
+       default_install_method=?, note=?, source=?, brand_name=?, enabled=?, updated_at=datetime('now') WHERE id=?`,
     ).run(
       d.code.trim(),
       d.type,
@@ -179,6 +220,8 @@ productsRouter.put('/:id', adminRequired, (req, res) => {
       d.defaultOpenStyle,
       d.defaultInstallMethod,
       d.note,
+      source,
+      brandName,
       d.enabled ? 1 : 0,
       id,
     );

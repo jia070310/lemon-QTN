@@ -16,6 +16,7 @@ export function OptionsPage() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
+  const [translating, setTranslating] = useState(false);
 
   async function load(cat = category) {
     const { items } = await api.listOptions(cat, '', true);
@@ -25,6 +26,31 @@ export function OptionsPage() {
   useEffect(() => {
     load().catch((e) => setError(e.message));
   }, [category]);
+
+  async function translateLabel() {
+    const text = label.trim();
+    if (!text) {
+      setError('请先填写中文名称');
+      return;
+    }
+    setError('');
+    setMsg('');
+    setTranslating(true);
+    try {
+      const { translations } = await api.translate([text]);
+      const en = (translations[text] || Object.values(translations)[0] || '').trim();
+      if (!en) {
+        setError('翻译结果为空，请手动填写英文');
+        return;
+      }
+      setLabelEn(en);
+      setMsg('已填入英文翻译，请核对后保存');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '翻译失败');
+    } finally {
+      setTranslating(false);
+    }
+  }
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -105,7 +131,23 @@ export function OptionsPage() {
             </label>
             <label>
               英文名称
-              <input value={labelEn} onChange={(e) => setLabelEn(e.target.value)} />
+              <div className="row" style={{ alignItems: 'stretch', gap: '0.5rem' }}>
+                <input
+                  value={labelEn}
+                  onChange={(e) => setLabelEn(e.target.value)}
+                  placeholder="英文/双语报价用，可留空稍后补"
+                  style={{ flex: 1 }}
+                />
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={translating || !label.trim()}
+                  onClick={translateLabel}
+                  title="根据中文名称一键译成英文"
+                >
+                  {translating ? '翻译中…' : '一键翻译'}
+                </button>
+              </div>
             </label>
           </div>
           <div className="row">
@@ -151,7 +193,7 @@ export function OptionsPage() {
             {items.map((item) => (
               <tr key={item.id} className={item.enabled ? '' : 'disabled-row'}>
                 <td>{item.label}</td>
-                <td>{item.labelEn || '—'}</td>
+                <td>{item.labelEn || '—（可编辑补全）'}</td>
                 <td>{item.enabled ? '启用' : '停用'}</td>
                 {isAdmin && (
                   <td className="row">

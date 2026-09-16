@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import type { Product } from '../types';
+import { normalizeItemSource } from '../types';
 import { SuggestPortal } from './SuggestPortal';
 
 type Props = {
@@ -71,6 +72,9 @@ export function ModelAutocomplete({ value, onChange, onPickProduct, onUnknownMod
           >
             <strong>{p.code}</strong>
             <span>
+              {normalizeItemSource(p.source) === 'brand'
+                ? `${p.brandName || '品牌'} · `
+                : '自有 · '}
               {p.type} · RM {p.defaultUnitPrice}
             </span>
           </li>

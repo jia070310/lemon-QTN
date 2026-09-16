@@ -24,13 +24,15 @@ export function SuggestPortal({ open, anchorRef, children, onClose }: Props) {
       const gap = 4;
       const spaceBelow = window.innerHeight - rect.bottom - gap;
       const openUp = spaceBelow < Math.min(maxH, 120) && rect.top > spaceBelow;
-      const width = Math.max(rect.width, 148);
+      const width = Math.max(rect.width, 260);
       const left = Math.min(rect.left, window.innerWidth - width - 8);
 
       setStyle({
         position: 'fixed',
         left: Math.max(8, left),
-        width,
+        minWidth: width,
+        width: 'max-content',
+        maxWidth: Math.min(window.innerWidth - 16, 420),
         maxHeight: Math.min(maxH, openUp ? rect.top - gap - 8 : spaceBelow),
         zIndex: 1200,
         ...(openUp

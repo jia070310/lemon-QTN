@@ -5,11 +5,15 @@ import { useAuth } from '../auth';
 import { ModelAutocomplete } from '../components/ModelAutocomplete';
 import { OptionAutocomplete } from '../components/OptionAutocomplete';
 import { QuotePreview } from '../components/QuotePreview';
+import { WorkOrderPreview } from '../components/WorkOrderPreview';
 import { exportImage } from '../exports/image';
 import { printQuote } from '../exports/print';
 import { exportTable, type TableExportFormat } from '../exports/table';
 import {
   DICT_CATEGORY_LABELS,
+  FLOOR_PRESETS,
+  ITEM_SOURCE_OPTIONS,
+  WORK_ORDER_LABELS,
   calcItem,
   calcItemsSubtotal,
   calcTotal,
@@ -17,30 +21,36 @@ import {
   emptyCustomFee,
   emptyItem,
   emptyQuote,
+  filterItemsForWorkOrder,
+  normalizeItemSource,
+  normalizeBrandName,
+  todayDateStr,
   type CustomFee,
   type Customer,
   type DictCategory,
   type DictOption,
+  type ItemSource,
   type MeasureUnit,
   type PageOrientation,
   type Product,
   type Quote,
   type QuoteItem,
   type QuoteLanguage,
+  type WorkOrderKind,
   PAGE_ORIENTATION_OPTIONS,
 } from '../types';
 import {
-  AREA_PRESETS,
   MEASURE_UNIT_OPTIONS,
-  WIDTH_HEIGHT_PRESETS,
   getMeasureLabels,
 } from '../lib/units';
 import { LANGUAGE_OPTIONS, getQuoteI18n, mergeOptionValueMap } from '../lib/i18n';
 import {
   applyQuoteTranslation,
   collectTranslatableTexts,
+  fromDateInputValue,
   localizeDateToChinese,
   localizeDateToEnglish,
+  toDateInputValue,
 } from '../lib/translateQuote';
 
 export function QuoteEditorPage() {
@@ -57,6 +67,11 @@ export function QuoteEditorPage() {
   const [tableMenu, setTableMenu] = useState(false);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [customerPick, setCustomerPick] = useState('');
+  const [selectedRows, setSelectedRows] = useState<Set<number>>(() => new Set());
+  const [workOrder, setWorkOrder] = useState<{
+    kind: WorkOrderKind;
+    items: QuoteItem[];
+  } | null>(null);
   const [pendingModel, setPendingModel] = useState<{
     code: string;
     rowIndex: number;
@@ -68,6 +83,7 @@ export function QuoteEditorPage() {
   const [pendingOption, setPendingOption] = useState<{
     category: DictCategory;
     label: string;
+    labelEn: string;
     rowIndex: number;
   } | null>(null);
   const [typeOptions, setTypeOptions] = useState<DictOption[]>([]);
@@ -76,6 +92,12 @@ export function QuoteEditorPage() {
   const askedModels = useRef<Set<string>>(new Set());
   const askedOptions = useRef<Set<string>>(new Set());
   const previewRef = useRef<HTMLDivElement>(null);
+  const workOrderRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isNew) return;
+    setQuote((q) => ({ ...q, quoteDate: todayDateStr() }));
+  }, [isNew]);
 
   useEffect(() => {
     api
@@ -136,11 +158,29 @@ export function QuoteEditorPage() {
             item.language === 'zh' || item.language === 'en' || item.language === 'both'
               ? item.language
               : 'both',
-          items: item.items.length ? item.items : [emptyItem()],
+          items: (item.items.length ? item.items : [emptyItem()]).map((it) => {
+            const source = normalizeItemSource(it.source);
+            return {
+              ...it,
+              source,
+              brandName: normalizeBrandName(source, it.brandName),
+            };
+          }),
         }),
       )
       .catch((e) => setError(e.message));
   }, [id, isNew]);
+
+  // 明细行数变化时校正勾选
+  useEffect(() => {
+    setSelectedRows((prev) => {
+      const next = new Set<number>();
+      for (const i of prev) {
+        if (i < quote.items.length) next.add(i);
+      }
+      return next;
+    });
+  }, [quote.items.length]);
 
   const itemsSubtotal = useMemo(() => calcItemsSubtotal(quote.items), [quote.items]);
   const total = useMemo(
@@ -149,8 +189,6 @@ export function QuoteEditorPage() {
   );
   const unit = (quote.measureUnit || 'm') as MeasureUnit;
   const labels = getMeasureLabels(unit);
-  const sizePresets = WIDTH_HEIGHT_PRESETS[unit];
-  const areaPresets = AREA_PRESETS[unit];
 
   function updateItem(index: number, patch: Partial<QuoteItem>) {
     setQuote((q) => {
@@ -190,6 +228,79 @@ export function QuoteEditorPage() {
       const next = items.length ? items : [emptyItem()];
       return { ...q, items: next, totalAmount: calcTotal(next, q.customFees || []) };
     });
+    setSelectedRows((prev) => {
+      const next = new Set<number>();
+      for (const i of prev) {
+        if (i === index) continue;
+        next.add(i > index ? i - 1 : i);
+      }
+      return next;
+    });
+  }
+
+  function toggleRowSelected(index: number) {
+    setSelectedRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    setSelectedRows((prev) => {
+      if (prev.size === quote.items.length) return new Set();
+      return new Set(quote.items.map((_, i) => i));
+    });
+  }
+
+  function makeWorkOrder(kind: WorkOrderKind) {
+    setError('');
+    setMsg('');
+    if (selectedRows.size === 0) {
+      setError('请先勾选要导出的明细行');
+      return;
+    }
+    const items = filterItemsForWorkOrder(quote.items, [...selectedRows], kind);
+    if (items.length === 0) {
+      const tip =
+        kind === 'brand'
+          ? '勾选行中没有「品牌」货源，请先改货源或改选行'
+          : kind === 'fabric'
+            ? '勾选行中没有「自有」货源，请先改货源或改选行'
+            : '没有可用明细行';
+      setError(tip);
+      return;
+    }
+    setWorkOrder({ kind, items });
+    setMsg(`已生成${WORK_ORDER_LABELS[kind]}（${items.length} 行），可预览 / 打印 / 出图`);
+  }
+
+  async function handleWorkOrderPrint() {
+    if (!workOrder) return;
+    requestAnimationFrame(() =>
+      printQuote(quote.pageOrientation === 'landscape' ? 'landscape' : 'portrait'),
+    );
+  }
+
+  async function handleWorkOrderImage() {
+    if (!workOrder) return;
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const el = workOrderRef.current?.querySelector('.quote-sheet') as HTMLElement | null;
+    if (!el) {
+      setError('作业单预览未就绪');
+      return;
+    }
+    try {
+      await exportImage(el, {
+        ...quote,
+        customerName: `${quote.customerName || '作业单'}-${WORK_ORDER_LABELS[workOrder.kind]}`,
+        totalAmount: total,
+      });
+      setMsg(`${WORK_ORDER_LABELS[workOrder.kind]}图片已导出`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '出图失败');
+    }
   }
 
   function updateCustomFee(index: number, patch: Partial<CustomFee>) {
@@ -278,12 +389,15 @@ export function QuoteEditorPage() {
   }
 
   function applyProduct(index: number, p: Product) {
+    const source = normalizeItemSource(p.source);
     updateItem(index, {
       model: p.code,
       type: p.type || '布',
       unitPrice: p.defaultUnitPrice,
       openStyle: p.defaultOpenStyle || quote.items[index].openStyle,
       installMethod: p.defaultInstallMethod || quote.items[index].installMethod,
+      source,
+      brandName: normalizeBrandName(source, p.brandName),
     });
     askedModels.current.add(p.code.toLowerCase());
   }
@@ -319,6 +433,11 @@ export function QuoteEditorPage() {
         defaultOpenStyle: pendingModel.openStyle,
         defaultInstallMethod: pendingModel.installMethod,
         note: '由报价单自动加入',
+        source: normalizeItemSource(quote.items[pendingModel.rowIndex]?.source),
+        brandName: normalizeBrandName(
+          normalizeItemSource(quote.items[pendingModel.rowIndex]?.source),
+          quote.items[pendingModel.rowIndex]?.brandName,
+        ),
         enabled: true,
       });
       setMsg(`已将型号 ${pendingModel.code} 加入型号库`);
@@ -334,7 +453,7 @@ export function QuoteEditorPage() {
     const key = `${category}:${label}`;
     if (askedOptions.current.has(key)) return;
     askedOptions.current.add(key);
-    setPendingOption({ category, label, rowIndex: index });
+    setPendingOption({ category, label, labelEn: '', rowIndex: index });
   }
 
   async function confirmAddOption() {
@@ -348,7 +467,7 @@ export function QuoteEditorPage() {
       const { item } = await api.createOption({
         category: pendingOption.category,
         label: pendingOption.label,
-        labelEn: '',
+        labelEn: pendingOption.labelEn.trim(),
       });
       if (pendingOption.category === 'type') {
         setTypeOptions((list) => [...list, item]);
@@ -358,7 +477,11 @@ export function QuoteEditorPage() {
         setInstallOptions((list) => [...list, item]);
       }
       mergeOptionValueMap([item]);
-      setMsg(`已将「${pendingOption.label}」加入${DICT_CATEGORY_LABELS[pendingOption.category]}`);
+      setMsg(
+        pendingOption.labelEn.trim()
+          ? `已将「${pendingOption.label}」加入${DICT_CATEGORY_LABELS[pendingOption.category]}`
+          : `已加入「${pendingOption.label}」（英文可稍后在选项库里补）`,
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : '加入选项库失败');
     } finally {
@@ -431,6 +554,7 @@ export function QuoteEditorPage() {
 
   /** Three independent export entry points */
   function handlePrint() {
+    setWorkOrder(null);
     setShowPreview(true);
     requestAnimationFrame(() =>
       printQuote(quote.pageOrientation === 'landscape' ? 'landscape' : 'portrait'),
@@ -535,8 +659,15 @@ export function QuoteEditorPage() {
           <label>
             日期
             <input
-              value={quote.quoteDate}
-              onChange={(e) => setQuote({ ...quote, quoteDate: e.target.value })}
+              type="date"
+              value={toDateInputValue(quote.quoteDate)}
+              onChange={(e) =>
+                setQuote({
+                  ...quote,
+                  quoteDate: fromDateInputValue(e.target.value, quote.language || 'both'),
+                })
+              }
+              title="使用系统日期选择器"
             />
           </label>
           <label>
@@ -639,31 +770,43 @@ export function QuoteEditorPage() {
         <div className="page-head">
           <h3>明细行</h3>
           <div className="row">
-            <span className="muted">当前：{labels.label}（输入框可点选常用预设）</span>
+            <span className="muted">当前：{labels.label}</span>
             <button type="button" className="secondary" onClick={addRow}>
               + 添加行
             </button>
           </div>
         </div>
-        <datalist id="size-presets">
-          {sizePresets.map((n) => (
-            <option key={n} value={n} />
-          ))}
-        </datalist>
-        <datalist id="area-presets">
-          {areaPresets.map((n) => (
-            <option key={n} value={n} />
-          ))}
-        </datalist>
+        <div className="work-order-actions" style={{ marginBottom: '0.75rem' }}>
+          <span className="muted">已勾选 {selectedRows.size} 行</span>
+          <button type="button" className="secondary" onClick={() => makeWorkOrder('brand')}>
+            制作品牌报单
+          </button>
+          <button type="button" className="secondary" onClick={() => makeWorkOrder('fabric')}>
+            制作下料单
+          </button>
+          <button type="button" className="secondary" onClick={() => makeWorkOrder('factory')}>
+            制作工厂制作单
+          </button>
+        </div>
         <div className="table-scroll">
           <table className="edit-table">
             <thead>
               <tr>
+                <th className="col-check">
+                  <input
+                    type="checkbox"
+                    checked={quote.items.length > 0 && selectedRows.size === quote.items.length}
+                    onChange={toggleSelectAll}
+                    title="全选"
+                    aria-label="全选"
+                  />
+                </th>
                 <th>#</th>
                 <th>楼层</th>
                 <th>区域</th>
                 <th>类型</th>
                 <th>型号</th>
+                <th>货源</th>
                 <th>窗帘方式</th>
                 <th>安装方式</th>
                 <th>{labels.widthLabel}</th>
@@ -677,12 +820,38 @@ export function QuoteEditorPage() {
             <tbody>
               {quote.items.map((it, index) => (
                 <tr key={index}>
+                  <td className="col-check">
+                    <input
+                      type="checkbox"
+                      checked={selectedRows.has(index)}
+                      onChange={() => toggleRowSelected(index)}
+                      aria-label={`选择第 ${index + 1} 行`}
+                    />
+                  </td>
                   <td>{index + 1}</td>
                   <td>
-                    <input
-                      value={it.floor}
-                      onChange={(e) => updateItem(index, { floor: e.target.value })}
-                    />
+                    <select
+                      value={
+                        !it.floor || FLOOR_PRESETS.includes(it.floor)
+                          ? it.floor
+                          : `__other__:${it.floor}`
+                      }
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        if (v.startsWith('__other__:')) return;
+                        updateItem(index, { floor: v });
+                      }}
+                    >
+                      <option value="">（空）</option>
+                      {FLOOR_PRESETS.map((f) => (
+                        <option key={f} value={f}>
+                          {f}
+                        </option>
+                      ))}
+                      {it.floor && !FLOOR_PRESETS.includes(it.floor) ? (
+                        <option value={`__other__:${it.floor}`}>{it.floor}</option>
+                      ) : null}
+                    </select>
                   </td>
                   <td>
                     <input
@@ -707,6 +876,34 @@ export function QuoteEditorPage() {
                       onPickProduct={(p) => applyProduct(index, p)}
                       onUnknownModel={(code) => handleUnknownModel(index, code)}
                     />
+                  </td>
+                  <td className="col-source">
+                    <div className="source-cell">
+                      <select
+                        value={normalizeItemSource(it.source)}
+                        onChange={(e) => {
+                          const source = e.target.value as ItemSource;
+                          updateItem(index, {
+                            source,
+                            brandName: source === 'brand' ? it.brandName || '' : '',
+                          });
+                        }}
+                      >
+                        {ITEM_SOURCE_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
+                      {normalizeItemSource(it.source) === 'brand' ? (
+                        <input
+                          value={it.brandName || ''}
+                          onChange={(e) => updateItem(index, { brandName: e.target.value })}
+                          placeholder="品牌名"
+                          title="具体品牌"
+                        />
+                      ) : null}
+                    </div>
                   </td>
                   <td>
                     <OptionAutocomplete
@@ -734,7 +931,6 @@ export function QuoteEditorPage() {
                     <input
                       type="number"
                       step="0.01"
-                      list="size-presets"
                       value={it.width || ''}
                       onChange={(e) => updateItem(index, { width: Number(e.target.value) })}
                     />
@@ -743,7 +939,6 @@ export function QuoteEditorPage() {
                     <input
                       type="number"
                       step="0.01"
-                      list="size-presets"
                       value={it.height || ''}
                       onChange={(e) => updateItem(index, { height: Number(e.target.value) })}
                     />
@@ -753,10 +948,9 @@ export function QuoteEditorPage() {
                       <input
                         type="number"
                         step="0.01"
-                        list="area-presets"
                         value={it.sqm || ''}
                         onChange={(e) => updateItem(index, { sqm: Number(e.target.value) })}
-                        title="有宽高时自动计算；也可直接选平方预设"
+                        title="有宽高时自动计算；也可直接填写平方"
                       />
                     ) : (
                       <span className="readonly">{it.sqm || ''}</span>
@@ -953,15 +1147,41 @@ export function QuoteEditorPage() {
         </label>
       </section>
 
+      {workOrder && (
+        <section className="panel no-print">
+          <div className="page-head">
+            <h3>{WORK_ORDER_LABELS[workOrder.kind]}预览</h3>
+            <div className="work-order-actions">
+              <button type="button" onClick={handleWorkOrderPrint}>
+                打印
+              </button>
+              <button type="button" className="secondary" onClick={handleWorkOrderImage}>
+                出图
+              </button>
+              <button type="button" className="secondary" onClick={() => setWorkOrder(null)}>
+                关闭
+              </button>
+            </div>
+          </div>
+          <div className="preview-wrap" ref={workOrderRef}>
+            <WorkOrderPreview kind={workOrder.kind} quote={quote} items={workOrder.items} />
+          </div>
+        </section>
+      )}
+
       {showPreview && (
         <div className="preview-wrap" ref={previewRef}>
           <QuotePreview quote={{ ...quote, totalAmount: total }} />
         </div>
       )}
 
-      {/* Hidden print root always present for print CSS */}
+      {/* Hidden print root：有作业单时优先打作业单，否则打报价单 */}
       <div className="print-only">
-        <QuotePreview quote={{ ...quote, totalAmount: total }} />
+        {workOrder ? (
+          <WorkOrderPreview kind={workOrder.kind} quote={quote} items={workOrder.items} />
+        ) : (
+          <QuotePreview quote={{ ...quote, totalAmount: total }} />
+        )}
       </div>
 
       {pendingModel && (
@@ -994,6 +1214,38 @@ export function QuoteEditorPage() {
               {DICT_CATEGORY_LABELS[pendingOption.category]}「
               <strong>{pendingOption.label}</strong>」不在选项库中，是否加入？
             </p>
+            <label style={{ display: 'block', margin: '0.75rem 0' }}>
+              英文名称（可选，英文/双语报价单会用到）
+              <div className="row" style={{ marginTop: '0.35rem', alignItems: 'stretch', gap: '0.5rem' }}>
+                <input
+                  value={pendingOption.labelEn}
+                  onChange={(e) =>
+                    setPendingOption({ ...pendingOption, labelEn: e.target.value })
+                  }
+                  placeholder="例如：Shangri-La"
+                  style={{ flex: 1 }}
+                />
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={async () => {
+                    try {
+                      const text = pendingOption.label.trim();
+                      if (!text) return;
+                      const { translations } = await api.translate([text]);
+                      const en = (translations[text] || Object.values(translations)[0] || '').trim();
+                      if (en) setPendingOption({ ...pendingOption, labelEn: en });
+                      else setError('翻译结果为空');
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : '翻译失败');
+                    }
+                  }}
+                >
+                  一键翻译
+                </button>
+              </div>
+            </label>
+            <p className="muted">不填也可以，之后在「选项库」点编辑补上。</p>
             <div className="row">
               <button type="button" onClick={confirmAddOption}>
                 加入选项库
